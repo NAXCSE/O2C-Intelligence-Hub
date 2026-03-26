@@ -32,6 +32,10 @@ const GraphView = forwardRef(({ highlightedNodes }, ref) => {
   const simulationRef = useRef(null);
   const nodesRef = useRef([]);
   const nodeCirclesRef = useRef(null);
+  const linksRef = useRef(null);
+  const linksDataRef = useRef([]);
+  const zoomBehaviorRef = useRef(null);
+  const gRef = useRef(null);
 
   // Expose focusNodes method to parent
   useImperativeHandle(ref, () => ({
@@ -45,48 +49,99 @@ const GraphView = forwardRef(({ highlightedNodes }, ref) => {
 
       if (!matched.length) return;
 
-      // Calculate center of matched nodes
-      const avgX = matched.reduce((sum, n) => sum + (n.x || 0), 0) / matched.length;
-      const avgY = matched.reduce((sum, n) => sum + (n.y || 0), 0) / matched.length;
+      // Wait for nodes to have positions (force simulation may still be settling)
+      const attemptZoom = () => {
+        const validMatched = matched.filter(n => n.x !== undefined && n.y !== undefined && n.x > 0 && n.y > 0);
+        
+        if (validMatched.length === 0) {
+          // Retry in 50ms if nodes don't have valid positions yet
+          setTimeout(attemptZoom, 50);
+          return;
+        }
 
-      const width = containerRef.current.clientWidth;
-      const height = containerRef.current.clientHeight;
+        const matchedIds = new Set(validMatched.map(n => n.id));
 
-      // Pan and zoom to matched nodes
-      const svg = d3.select(svgRef.current);
-      svg.transition()
-        .duration(750)
-        .call(
-          d3.zoom().transform,
-          d3.zoomIdentity
-            .translate(width / 2, height / 2)
-            .scale(1.8)
-            .translate(-avgX, -avgY)
-        );
+        // Calculate center and bounds of matched nodes
+        const avgX = validMatched.reduce((sum, n) => sum + (n.x || 0), 0) / validMatched.length;
+        const avgY = validMatched.reduce((sum, n) => sum + (n.y || 0), 0) / validMatched.length;
 
-      // Pulse highlight the matched nodes
-      if (nodeCirclesRef.current) {
-        nodeCirclesRef.current
-          .transition().duration(300)
-          .attr('stroke', n =>
-            matched.find(m => m.id === n.id) ? '#facc15' : '#ffffff'
-          )
-          .attr('stroke-width', n =>
-            matched.find(m => m.id === n.id) ? 4 : 1.5
-          )
-          .attr('r', n =>
-            matched.find(m => m.id === n.id)
-              ? (NODE_RADIUS[n.type] || 6) * 2
-              : NODE_RADIUS[n.type] || 6
-          );
+        const xs = validMatched.map(n => n.x || 0);
+        const ys = validMatched.map(n => n.y || 0);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        const nodeSpread = Math.max(maxX - minX, maxY - minY, 120);
 
-        // Shrink back after 2 seconds but keep highlight
-        setTimeout(() => {
+        const width = containerRef.current.clientWidth;
+        const height = containerRef.current.clientHeight;
+        const scale = Math.min(3.5, 0.7 * Math.min(width, height) / nodeSpread);
+
+        // Pan and zoom to matched nodes with smooth animation
+        const svg = d3.select(svgRef.current);
+        
+        if (zoomBehaviorRef.current) {
+          svg.transition()
+            .duration(900)
+            .ease(d3.easeCubicInOut)
+            .call(
+              zoomBehaviorRef.current.transform,
+              d3.zoomIdentity
+                .translate(width / 2, height / 2)
+                .scale(scale)
+                .translate(-avgX, -avgY)
+            );
+        }
+
+        // Highlight matched nodes with pulse effect
+        if (nodeCirclesRef.current) {
           nodeCirclesRef.current
+            .transition().duration(400)
+            .ease(d3.easeLinear)
+            .attr('stroke', n =>
+              validMatched.find(m => m.id === n.id) ? '#facc15' : '#ffffff'
+            )
+            .attr('stroke-width', n =>
+              validMatched.find(m => m.id === n.id) ? 4 : 1.5
+            )
+            .attr('r', n =>
+              validMatched.find(m => m.id === n.id)
+                ? (NODE_RADIUS[n.type] || 6) * 2.3
+                : NODE_RADIUS[n.type] || 6
+            );
+
+          // Shrink back after 1.8 seconds but keep yellow highlight
+          setTimeout(() => {
+            nodeCirclesRef.current
+              .transition().duration(500)
+              .ease(d3.easeLinear)
+              .attr('r', n => NODE_RADIUS[n.type] || 6);
+          }, 1800);
+        }
+
+        // Highlight connected edges
+        if (linksRef.current) {
+          linksRef.current
             .transition().duration(300)
-            .attr('r', n => NODE_RADIUS[n.type] || 6);
-        }, 2000);
-      }
+            .attr('stroke', link => {
+              const sourceId = link.source.id || link.source;
+              const targetId = link.target.id || link.target;
+              return matchedIds.has(sourceId) && matchedIds.has(targetId) ? '#fbbf24' : '#c8d6e5';
+            })
+            .attr('stroke-width', link => {
+              const sourceId = link.source.id || link.source;
+              const targetId = link.target.id || link.target;
+              return matchedIds.has(sourceId) && matchedIds.has(targetId) ? 3 : 1;
+            })
+            .attr('stroke-opacity', link => {
+              const sourceId = link.source.id || link.source;
+              const targetId = link.target.id || link.target;
+              return matchedIds.has(sourceId) && matchedIds.has(targetId) ? 0.9 : 0.4;
+            });
+        }
+      };
+
+      attemptZoom();
     }
   }));
 
@@ -106,13 +161,16 @@ const GraphView = forwardRef(({ highlightedNodes }, ref) => {
 
       // Zoom support
       const g = svg.append('g');
-      svg.call(
-        d3.zoom()
-          .scaleExtent([0.1, 4])
-          .on('zoom', (event) => {
-            g.attr('transform', event.transform);
-          })
-      );
+      gRef.current = g;
+      
+      const zoomBehavior = d3.zoom()
+        .scaleExtent([0.1, 4])
+        .on('zoom', (event) => {
+          g.attr('transform', event.transform);
+        });
+      
+      zoomBehaviorRef.current = zoomBehavior;
+      svg.call(zoomBehavior);
 
       // Build node and link maps
       const nodeMap = {};
@@ -124,6 +182,7 @@ const GraphView = forwardRef(({ highlightedNodes }, ref) => {
 
       const nodes = rawNodes.map(n => ({ ...n }));
       nodesRef.current = nodes;
+      linksDataRef.current = links; // Store links data for later reference
 
       // Force simulation
       const simulation = d3.forceSimulation(nodes)
@@ -142,6 +201,8 @@ const GraphView = forwardRef(({ highlightedNodes }, ref) => {
         .attr('stroke', '#c8d6e5')
         .attr('stroke-width', 1)
         .attr('stroke-opacity', 0.6);
+
+      linksRef.current = link; // Store reference to link elements
 
       // Draw nodes
       const node = g.append('g')
@@ -221,18 +282,43 @@ const GraphView = forwardRef(({ highlightedNodes }, ref) => {
     });
   }, []);
 
-  // Highlight nodes when chat references them
+  // Highlight nodes and connected edges when chat references them
   useEffect(() => {
     if (!nodeCirclesRef.current || !highlightedNodes.length) return;
+
+    const matchedIds = new Set();
+
+    // Highlight nodes
     nodeCirclesRef.current
-      .attr('stroke', d =>
-        highlightedNodes.some(h => d.id.includes(h) || (d.data && Object.values(d.data).includes(h)))
-          ? '#facc15' : '#ffffff'
-      )
+      .attr('stroke', d => {
+        const isMatched = highlightedNodes.some(h => d.id.includes(h) || (d.data && Object.values(d.data).includes(h)));
+        if (isMatched) matchedIds.add(d.id);
+        return isMatched ? '#facc15' : '#ffffff';
+      })
       .attr('stroke-width', d =>
         highlightedNodes.some(h => d.id.includes(h) || (d.data && Object.values(d.data).includes(h)))
           ? 3 : 1.5
       );
+
+    // Highlight edges that connect matched nodes
+    if (linksRef.current && linksDataRef.current.length) {
+      linksRef.current
+        .attr('stroke', link => {
+          const sourceId = link.source.id || link.source;
+          const targetId = link.target.id || link.target;
+          return matchedIds.has(sourceId) && matchedIds.has(targetId) ? '#fbbf24' : '#c8d6e5';
+        })
+        .attr('stroke-width', link => {
+          const sourceId = link.source.id || link.source;
+          const targetId = link.target.id || link.target;
+          return matchedIds.has(sourceId) && matchedIds.has(targetId) ? 2.5 : 1;
+        })
+        .attr('stroke-opacity', link => {
+          const sourceId = link.source.id || link.source;
+          const targetId = link.target.id || link.target;
+          return matchedIds.has(sourceId) && matchedIds.has(targetId) ? 0.9 : 0.4;
+        });
+    }
   }, [highlightedNodes]);
 
   return (

@@ -72,6 +72,10 @@ IMPORTANT JOIN RULES:
 - To find billed orders: JOIN delivery_items to billing_items ON billing_items.referenceSdDocument = delivery_items.deliveryDocument
 - NEVER join salesOrder directly to deliveryDocument or billingDocument
 - Always go through the items tables for order-to-delivery-to-billing joins
+- For tracing flows: billing_headers → billing_items → delivery_items → sales_order_items/headers
+
+EXAMPLE - Trace the full flow of billing document 90504204:
+SELECT bh.billingDocument, bh.billingDocumentDate, bh.totalNetAmount, bh.soldToParty, bi.material, bi.billingQuantity, di.deliveryDocument, di.actualDeliveryQuantity, soh.salesOrder, soh.totalNetAmount AS orderAmount, bp.businessPartnerFullName, je.accountingDocument, je.amountInTransactionCurrency FROM billing_headers bh JOIN billing_items bi ON bh.billingDocument = bi.billingDocument JOIN delivery_items di ON bi.referenceSdDocument = di.deliveryDocument LEFT JOIN sales_order_headers soh ON di.referenceSdDocument = soh.salesOrder LEFT JOIN business_partners bp ON soh.soldToParty = bp.businessPartner LEFT JOIN journal_entries je ON bh.accountingDocument = je.accountingDocument WHERE bh.billingDocument = '90504204'
 """
 
 def query_to_sql(user_question: str) -> str:
@@ -110,30 +114,47 @@ def sql_results_to_answer(user_question: str, sql: str, results: list) -> str:
                 "role": "system",
                 "content": """You are a helpful business analyst. Answer the user's question based ONLY on the SQL query results provided.
 
+CRITICAL RULES:
+1. Answer ONLY what was asked - do not add extra comparisons or analysis
+2. Do NOT compare entities that were not directly asked about
+3. Avoid repetition - say each fact once, clearly
+4. Stop after answering the question - no additional rankings or comparisons
+
 FORMATTING RULES (MANDATORY):
 - Do NOT use bullet points (*), dashes (-), or markdown formatting
 - For lists of IDs or values: use comma-separated format (e.g., "740506, 740507, 740508")
+- Add a blank line between different logical groups or topics
 - Keep answers concise and specific
 - Use numbers and IDs from the data directly
 - Write clean, professional text without symbols or special formatting
-- Do not make up any information not present in the results"""
+- Do not make up any information not present in the results
+
+GOOD EXAMPLE (answer is complete, no extra comparisons):
+Q: Which customers have the most incomplete order flows?
+A: The customers with the most incomplete order flows are Henderson, Garner and Graves and Melton Group, both with 7 incomplete orders.
+
+BAD EXAMPLE (adds unnecessary comparisons):
+The customers with the most incomplete order flows are Henderson, Garner and Graves, Melton Group, both with 7 incomplete orders.
+Bradley-Kelley has 2 incomplete orders, which is less than Henderson, Garner and Graves...
+(This is wrong - don't compare others unless asked)"""
             },
             {
                 "role": "user",
-                "content": f"Question: {user_question}\n\nSQL used: {sql}\n\nResults: {results_str}\n\nProvide a clear, data-backed answer with NO bullet points or markdown formatting. Use comma-separated lists for multiple values."
+                "content": f"Question: {user_question}\n\nSQL used: {sql}\n\nResults: {results_str}\n\nAnswer ONLY the question asked. Do not add extra comparisons. Keep it concise."
             }
         ],
-        max_tokens=500,
+        max_tokens=400,
         temperature=0
     )
 
     answer = response.choices[0].message.content.strip()
     
-    # Post-processing: Remove unwanted bullet points and symbols
+    # Post-processing: clean formatting while preserving intentional blank lines
     answer = re.sub(r'\s*\*\s+', ', ', answer)  # Replace "* " with ", "
     answer = re.sub(r',\s*,', ',', answer)       # Remove double commas
     answer = re.sub(r',\s*$', '', answer)        # Remove trailing comma
     answer = re.sub(r'^\s*,', '', answer)        # Remove leading comma
+    answer = re.sub(r'\n{4,}', '\n\n', answer)   # Collapse 4+ newlines to 2 (blank line)
     
     return answer
 

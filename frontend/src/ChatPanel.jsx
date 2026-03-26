@@ -123,8 +123,9 @@ export default function ChatPanel({ onHighlight }) {
               borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
               padding: '10px 14px',
               fontSize: '13px',
-              lineHeight: '1.6',
+              lineHeight: '1.8',
               color: msg.role === 'user' ? '#ffffff' : '#111827',
+              whiteSpace: 'pre-line',
             }}>
               {msg.text}
             </div>
