@@ -245,7 +245,11 @@ How many payments has customer 320000083 made?
 
 ---
 
+| Item | Reason |
+|------|--------|
 | `backend/data/*.db` | Generated file — run database.py to recreate (Although already in Repo)|
+
+---
 
 ## What Is Not Committed to GitHub
 
