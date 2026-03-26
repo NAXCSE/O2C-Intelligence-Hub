@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } f
 import * as d3 from 'd3';
 import axios from 'axios';
 
-const API = 'http://localhost:8000';
+const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const NODE_COLORS = {
   salesOrder: '#3b82f6',
@@ -214,6 +214,10 @@ const GraphView = forwardRef(({ highlightedNodes }, ref) => {
       svg.on('click', () => setSelectedNode(null));
 
       setLoading(false);
+    }).catch(err => {
+      console.error('Failed to fetch graph data:', err);
+      setLoading(false);
+      alert(`Failed to load graph. Make sure the backend is running at ${API}\n\nError: ${err.message}`);
     });
   }, []);
 

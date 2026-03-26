@@ -5,10 +5,6 @@ node_modules/
 /.pnp
 .pnp.js
 
-#data
-sap-o2c-data/
-
-
 #cache
 __pycache__
 *.pyc
