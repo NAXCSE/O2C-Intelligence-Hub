@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 
-const API = 'http://localhost:8000';
+const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const SUGGESTIONS = [
   "Which products are associated with the highest number of billing documents?",
@@ -54,9 +54,10 @@ export default function ChatPanel({ onHighlight }) {
       }
 
     } catch (err) {
+      console.error('Failed to send query:', err);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        text: 'Something went wrong. Please try again.',
+        text: `Something went wrong. Make sure the backend is running at ${API}\n\nError: ${err.message}`,
         sql: null,
       }]);
     }
