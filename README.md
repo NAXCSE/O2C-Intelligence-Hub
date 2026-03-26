@@ -245,11 +245,12 @@ How many payments has customer 320000083 made?
 
 ---
 
+| `backend/data/*.db` | Generated file — run database.py to recreate (Although already in Repo)|
+
 ## What Is Not Committed to GitHub
 
 | Item | Reason |
 |------|--------|
 | `.env` | Contains API keys |
-| `backend/data/*.db` | Generated file — run database.py to recreate |
 | `node_modules/` | Installed via npm install |
 | `__pycache__/` | Python cache |
