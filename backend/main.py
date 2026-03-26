@@ -19,10 +19,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_PATH = "data/business.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "data", "business.db")
 
 class QueryRequest(BaseModel):
     question: str
+
+# ─── Root Endpoint ────────────────────────────────────────────────────────────
+
+@app.get("/")
+def root():
+    return {"message": "API is running"}
 
 # ─── Chat Endpoint ────────────────────────────────────────────────────────────
 
@@ -218,4 +225,5 @@ def get_node_detail(node_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
