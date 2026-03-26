@@ -251,6 +251,5 @@ How many payments has customer 320000083 made?
 |------|--------|
 | `.env` | Contains API keys |
 | `backend/data/*.db` | Generated file — run database.py to recreate |
-| `sap-o2c-data/` | Raw dataset — too large, recreated by running database.py |
 | `node_modules/` | Installed via npm install |
 | `__pycache__/` | Python cache |
