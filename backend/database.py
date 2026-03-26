@@ -3,7 +3,8 @@ import os
 import sqlite3
 import glob
 
-DB_PATH = "data/business.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "data", "business.db")
 
 TABLE_MAP = {
     "sales_order_headers": "sap-o2c-data/sales_order_headers",
