@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+import re
 from groq import Groq
 from dotenv import load_dotenv
 
@@ -107,18 +108,34 @@ def sql_results_to_answer(user_question: str, sql: str, results: list) -> str:
         messages=[
             {
                 "role": "system",
-                "content": "You are a helpful business analyst. Answer the user's question based ONLY on the SQL query results provided. Be concise and specific. Use numbers and IDs from the data. Do not make up any information not present in the results."
+                "content": """You are a helpful business analyst. Answer the user's question based ONLY on the SQL query results provided.
+
+FORMATTING RULES (MANDATORY):
+- Do NOT use bullet points (*), dashes (-), or markdown formatting
+- For lists of IDs or values: use comma-separated format (e.g., "740506, 740507, 740508")
+- Keep answers concise and specific
+- Use numbers and IDs from the data directly
+- Write clean, professional text without symbols or special formatting
+- Do not make up any information not present in the results"""
             },
             {
                 "role": "user",
-                "content": f"Question: {user_question}\n\nSQL used: {sql}\n\nResults: {results_str}\n\nProvide a clear, data-backed answer."
+                "content": f"Question: {user_question}\n\nSQL used: {sql}\n\nResults: {results_str}\n\nProvide a clear, data-backed answer with NO bullet points or markdown formatting. Use comma-separated lists for multiple values."
             }
         ],
         max_tokens=500,
         temperature=0
     )
 
-    return response.choices[0].message.content.strip()
+    answer = response.choices[0].message.content.strip()
+    
+    # Post-processing: Remove unwanted bullet points and symbols
+    answer = re.sub(r'\s*\*\s+', ', ', answer)  # Replace "* " with ", "
+    answer = re.sub(r',\s*,', ',', answer)       # Remove double commas
+    answer = re.sub(r',\s*$', '', answer)        # Remove trailing comma
+    answer = re.sub(r'^\s*,', '', answer)        # Remove leading comma
+    
+    return answer
 
 def handle_query(user_question: str) -> dict:
     # Step 1: Convert to SQL
