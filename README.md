@@ -1,6 +1,6 @@
 # O2C Graph Intelligence
 
-> SAP Order-to-Cash Graph Explorer with Natural Language Query Interface
+> Order-to-Cash Graph Explorer with Natural Language Query Interface
 
 A full-stack application that transforms fragmented SAP Order-to-Cash data into an interactive graph, allowing users to explore entity relationships visually and query the data using natural language.
 
@@ -247,7 +247,7 @@ How many payments has customer 320000083 made?
 
 | Item | Reason |
 |------|--------|
-| `backend/data/*.db` | Generated file — run database.py to recreate (Although already in Repo)|
+| `backend/data/*.db` | Generated file — run database.py to recreate (Although already in repo)|
 
 ---
 
