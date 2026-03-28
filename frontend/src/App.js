@@ -17,7 +17,7 @@ function App() {
   return (
     <div className="app-container">
       <div className="header">
-        <h1>SAP Order-to-Cash Explorer</h1>
+        <h1>Order-to-Cash Explorer</h1>
         <span>Sales Order → Delivery → Billing → Journal Entry → Payment</span>
       </div>
       <div className="main-content">

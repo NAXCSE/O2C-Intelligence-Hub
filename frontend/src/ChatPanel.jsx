@@ -14,7 +14,7 @@ export default function ChatPanel({ onHighlight }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      text: 'Hello! Ask me anything about your SAP Order-to-Cash data. I can trace order flows, find billing issues, analyze products, and more.',
+      text: 'Hello! Ask me anything about your Order-to-Cash data. I can trace order flows, find billing issues, analyze products, and more.',
       sql: null,
     }
   ]);
@@ -125,7 +125,7 @@ export default function ChatPanel({ onHighlight }) {
               fontSize: '13px',
               lineHeight: '1.8',
               color: msg.role === 'user' ? '#ffffff' : '#111827',
-              whiteSpace: 'pre-line',
+              whiteSpace: 'normal',
             }}>
               {msg.text}
             </div>
