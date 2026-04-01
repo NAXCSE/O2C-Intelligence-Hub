@@ -10,12 +10,149 @@ const SUGGESTIONS = [
   "Trace the full flow of billing document 90504204",
 ];
 
+function renderAnswer(text, results) {
+  if (!text) return null;
+  
+  const lines = text.split('\n').filter(line => line.trim());
+  const stepKeywords = ['Sales Order:', 'Delivery:', 'Billing:', 'Journal Entry:', 'Payment:'];
+  
+  return (
+    <div>
+      {lines.map((line, i) => {
+        // Warning lines for cancelled documents
+        if (line.startsWith('Note:')) {
+          return (
+            <div key={i} style={{
+              background: '#fef3c7',
+              border: '1px solid #f59e0b',
+              borderRadius: 6,
+              padding: '8px 12px',
+              fontSize: 12,
+              color: '#92400e',
+              marginTop: 8,
+              marginBottom: 0,
+              fontWeight: 500,
+            }}>
+              {line}
+            </div>
+          );
+        }
+        
+        // Step labels for trace queries
+        if (stepKeywords.some(kw => line.startsWith(kw))) {
+          const colonIndex = line.indexOf(':');
+          const label = line.substring(0, colonIndex);
+          const rest = line.substring(colonIndex + 1).trim();
+          
+          return (
+            <div key={i} style={{
+              display: 'flex',
+              gap: 12,
+              paddingTop: i > 0 ? 6 : 0,
+              paddingBottom: 6,
+              borderBottom: '1px solid #f3f4f6',
+              fontSize: 12,
+            }}>
+              <span style={{
+                color: '#64748b',
+                fontWeight: 600,
+                minWidth: 110,
+                flexShrink: 0,
+              }}>
+                {label}
+              </span>
+              <span style={{ color: '#111827', flex: 1 }}>
+                {rest}
+              </span>
+            </div>
+          );
+        }
+        
+        // Regular lines
+        return (
+          <div key={i} style={{
+            fontSize: 12,
+            color: '#111827',
+            lineHeight: 1.7,
+            paddingBottom: 4,
+          }}>
+            {line}
+          </div>
+        );
+      })}
+      
+      {/* Results table for >3 rows */}
+      {results && results.length > 3 && (
+        <details style={{ marginTop: 10 }}>
+          <summary style={{
+            fontSize: 11,
+            color: '#6b7280',
+            cursor: 'pointer',
+            userSelect: 'none',
+            paddingTop: 6,
+            fontWeight: 500,
+          }}>
+            Show all {results.length} results
+          </summary>
+          <div style={{
+            marginTop: 8,
+            borderRadius: 6,
+            overflow: 'hidden',
+            fontSize: 11,
+            border: '1px solid #e5e7eb',
+          }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                  {Object.keys(results[0] || {}).slice(0, 5).map(key => (
+                    <th key={key} style={{
+                      color: '#6b7280',
+                      fontWeight: 600,
+                      padding: '8px 10px',
+                      textAlign: 'left',
+                      borderRight: '1px solid #e5e7eb',
+                    }}>
+                      {key}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {results.slice(0, 5).map((row, idx) => (
+                  <tr key={idx} style={{
+                    background: idx % 2 === 0 ? '#fff' : '#f9fafb',
+                    borderBottom: '1px solid #e5e7eb',
+                  }}>
+                    {Object.keys(results[0] || {}).slice(0, 5).map(key => (
+                      <td key={key} style={{
+                        padding: '8px 10px',
+                        color: '#111827',
+                        borderRight: '1px solid #e5e7eb',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        maxWidth: 200,
+                      }}>
+                        {String(row[key] || '').substring(0, 50)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 export default function ChatPanel({ onHighlight }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
       text: 'Hello! Ask me anything about your Order-to-Cash data. I can trace order flows, find billing issues, analyze products, and more.',
       sql: null,
+      results: null,
     }
   ]);
   const [input, setInput] = useState('');
@@ -42,6 +179,7 @@ export default function ChatPanel({ onHighlight }) {
         role: 'assistant',
         text: answer,
         sql: sql,
+        results: results || [],
         resultCount: results?.length || 0,
       }]);
 
@@ -59,6 +197,7 @@ export default function ChatPanel({ onHighlight }) {
         role: 'assistant',
         text: `Something went wrong. Make sure the backend is running at ${API}\n\nError: ${err.message}`,
         sql: null,
+        results: null,
       }]);
     }
 
@@ -127,7 +266,7 @@ export default function ChatPanel({ onHighlight }) {
               color: msg.role === 'user' ? '#ffffff' : '#111827',
               whiteSpace: 'normal',
             }}>
-              {msg.text}
+              {msg.role === 'assistant' ? renderAnswer(msg.text, msg.results) : msg.text}
             </div>
 
             {/* SQL toggle */}

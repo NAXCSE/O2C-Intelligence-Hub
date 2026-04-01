@@ -58,24 +58,62 @@ The O2C flow is: Sales Order -> Delivery -> Billing Document -> Journal Entry ->
 You have access to these SQLite tables:
 {SCHEMA}
 
-Rules:
+CRITICAL RULES:
 1. If the question is related to this dataset, respond with ONLY a valid SQLite SQL query. No explanation, no markdown, no backticks, no comments.
 2. If the question is NOT related to this dataset (general knowledge, creative writing, personal questions, anything outside business/orders/deliveries/billing/payments/products/customers), respond with exactly: UNRELATED_QUERY
 3. Never use columns that do not exist in the schema above
 4. Always use proper SQLite syntax
-5. For text comparisons use LIKE or exact match
-6. Limit results to 50 rows maximum unless the user asks for all
-7. Return raw SQL only — no markdown fences, no explanation, nothing else
+5. Limit results to 50 rows maximum unless the user asks for all
+6. Return raw SQL only — no markdown fences, no explanation, nothing else
+
+QUERY REASONING RULES - THINK BEFORE WRITING SQL:
+
+For FLOW/TRACE questions (trace an order through O2C):
+- Start from billing_headers and JOIN outward in both directions using items tables
+- Always use: billing_headers → billing_items → delivery_items → sales_order headers
+- Never join salesOrder directly to deliveryDocument or billingDocument
+- Join through items tables for proper relationships
+
+For "WHICH X HAS MOST/LEAST Y" questions (rankings, comparisons):
+- Use COUNT with GROUP BY and ORDER BY
+- Always JOIN through items tables, never direct joins
+- Include the count in results and order properly
+
+For INCOMPLETE/BROKEN FLOW questions (missing stages):
+- Use LEFT JOIN to find missing records
+- Check for NULL on the missing step to identify incomplete flows
+- Example: LEFT JOIN billing_items ... WHERE billing_items.billingDocument IS NULL
+
+For BLOCKED questions (delivery blockers, billing blockers):
+- Check for non-empty block reason columns
+- Filter: WHERE headerBillingBlockReason IS NOT NULL AND headerBillingBlockReason != ''
+
+For CUSTOMER questions (customer names, customer metrics):
+- Always LEFT JOIN business_partners
+- Use businessPartnerFullName for human-readable names
+- Join: sales_order_headers.soldToParty = business_partners.businessPartner
+
+For PRODUCT questions (product info, product metrics):
+- Always LEFT JOIN product_descriptions
+- Filter: ON language = 'EN' for English descriptions
+- Use productDescription for human-readable product names
+
+For AMOUNT/REVENUE questions (sum, total, average):
+- Always CAST amounts to REAL before aggregating
+- Use ROUND(amount, 2) for currency fields
+- CAST(ROUND(CAST(totalNetAmount AS REAL), 2) AS TEXT)
+
+For DATE filtering (specific year, date range):
+- Use LIKE pattern for year: WHERE billingDocumentDate LIKE '2025%'
+- Use BETWEEN for date ranges: WHERE billingDocumentDate BETWEEN '2025-01-01' AND '2025-12-31'
 
 IMPORTANT JOIN RULES:
-- To find delivered orders: JOIN sales_order_headers to delivery_items ON delivery_items.referenceSdDocument = sales_order_headers.salesOrder
-- To find billed orders: JOIN delivery_items to billing_items ON billing_items.referenceSdDocument = delivery_items.deliveryDocument
-- NEVER join salesOrder directly to deliveryDocument or billingDocument
-- Always go through the items tables for order-to-delivery-to-billing joins
-- For tracing flows: billing_headers → billing_items → delivery_items → sales_order_items/headers
-
-EXAMPLE - Trace the full flow of billing document 90504204:
-SELECT bh.billingDocument, bh.billingDocumentDate, bh.totalNetAmount, bh.soldToParty, bi.material, bi.billingQuantity, di.deliveryDocument, di.actualDeliveryQuantity, soh.salesOrder, soh.totalNetAmount AS orderAmount, bp.businessPartnerFullName, je.accountingDocument, je.amountInTransactionCurrency FROM billing_headers bh JOIN billing_items bi ON bh.billingDocument = bi.billingDocument JOIN delivery_items di ON bi.referenceSdDocument = di.deliveryDocument LEFT JOIN sales_order_headers soh ON di.referenceSdDocument = soh.salesOrder LEFT JOIN business_partners bp ON soh.soldToParty = bp.businessPartner LEFT JOIN journal_entries je ON bh.accountingDocument = je.accountingDocument WHERE bh.billingDocument = '90504204'
+- delivery_items.referenceSdDocument = sales_order_headers.salesOrder
+- billing_items.referenceSdDocument = delivery_items.deliveryDocument
+- billing_headers.accountingDocument = journal_entries.accountingDocument
+- journal_entries.clearingAccountingDocument = payments.accountingDocument
+- sales_order_headers.soldToParty = business_partners.businessPartner
+- sales_order_items.material = products.product
 """
 
 def query_to_sql(user_question: str) -> str:
@@ -102,45 +140,87 @@ def execute_sql(sql: str) -> list:
     conn.close()
     return [dict(row) for row in rows]
 
+def detect_query_type(question: str, results: list) -> str:
+    """Detect the type of query from the question and result structure."""
+    question_lower = question.lower()
+    keys = list(results[0].keys()) if results else []
+    
+    if any(word in question_lower for word in ['trace', 'full flow', 'flow of']):
+        return 'trace'
+    if any(word in question_lower for word in ['highest', 'most', 'top', 'lowest', 'least', 'ranking']):
+        return 'ranking'
+    if any(word in question_lower for word in ['incomplete', 'missing', 'never billed', 'not billed', 'no delivery', 'broken']):
+        return 'anomaly'
+    if any(word in question_lower for word in ['total', 'sum', 'average', 'revenue', 'amount']):
+        return 'aggregation'
+    if len(results) == 1:
+        return 'single_record'
+    return 'general'
+
 def sql_results_to_answer(user_question: str, sql: str, results: list) -> str:
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-
+    
+    query_type = detect_query_type(user_question, results)
     results_str = json.dumps(results[:20], indent=2)
+
+    type_formatting = {
+        'trace': """For TRACE queries: Format as a step-by-step flow showing each stage on its own line.
+Label each step: Sales Order, Delivery, Billing, Journal Entry, Payment.
+Show key fields for each step using format: Stage: ID | Field: Value | Another: Value
+End with whether the flow is complete or has gaps.""",
+        
+        'ranking': """For RANKING queries: Lead with the top result clearly stated in a complete sentence.
+List remaining results as comma-separated values with their counts.
+End with total count of items found.""",
+        
+        'anomaly': """For ANOMALY queries: State the count of affected records first.
+List the specific IDs or names clearly and completely.
+Explain what is missing or broken in the flow.
+End with business impact explanation.""",
+        
+        'aggregation': """For AGGREGATION queries: Show the highest and lowest values found.
+Give total and average if relevant to the question.
+Put each key number on its own line.
+End with one insight.""",
+        
+        'single_record': """For SINGLE RECORD queries: Show as Label: Value pairs, one per line.
+Group related fields by blank lines between groups.
+Keep lines under 100 characters.""",
+        
+        'general': """For GENERAL queries: One clear sentence per insight.
+Most important finding first.
+Build from specific facts to broader conclusions."""
+    }
 
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
             {
                 "role": "system",
-                "content": """You are a helpful business analyst. Answer the user's question based ONLY on the SQL query results provided.
+                "content": f"""You are a business analyst specializing in SAP Order-to-Cash data.
+Answer the user's question based ONLY on the SQL query results provided.
 
-CRITICAL RULES:
-1. Answer ONLY what was asked - do not add extra comparisons or analysis
-2. Do NOT compare entities that were not directly asked about
-3. Avoid repetition - say each fact once, clearly
-4. Stop after answering the question - no additional rankings or comparisons
+QUERY TYPE DETECTED: {query_type.upper()}
 
-FORMATTING RULES (MANDATORY):
-- Do NOT use bullet points (*), dashes (-), or markdown formatting
-- For lists of IDs or values: use comma-separated format (e.g., "740506, 740507, 740508")
-- Add a blank line between different logical groups or topics
-- Keep answers concise and specific
-- Use numbers and IDs from the data directly
-- Write clean, professional text without symbols or special formatting
-- Do not make up any information not present in the results
+{type_formatting.get(query_type, type_formatting['general'])}
 
-GOOD EXAMPLE (answer is complete, no extra comparisons):
-Q: Which customers have the most incomplete order flows?
-A: The customers with the most incomplete order flows are Henderson, Garner and Graves and Melton Group, both with 7 incomplete orders.
-
-BAD EXAMPLE (adds unnecessary comparisons):
-The customers with the most incomplete order flows are Henderson, Garner and Graves, Melton Group, both with 7 incomplete orders.
-Bradley-Kelley has 2 incomplete orders, which is less than Henderson, Garner and Graves...
-(This is wrong - don't compare others unless asked)"""
+UNIVERSAL FORMATTING RULES (FOR ALL QUERY TYPES):
+- NEVER use bullet points, asterisks (*), dashes (-), or markdown formatting
+- Do NOT use backticks or code formatting
+- Write in clean, professional text only
+- Use actual values from results (IDs, amounts, dates, names)
+- Do not make up information
+- Add blank lines between logical sections only when needed
+- Always include one final summary or insight line
+- Do NOT add comparisons beyond what was asked
+- Limit response to maximum 8 lines
+- If any amount field shows a negative value, flag it as a reversal or credit
+- If billingDocumentIsCancelled is True in results, add at end: "Note: This document is cancelled."
+"""
             },
             {
                 "role": "user",
-                "content": f"Question: {user_question}\n\nSQL used: {sql}\n\nResults: {results_str}\n\nAnswer ONLY the question asked. Do not add extra comparisons. Keep it concise."
+                "content": f"Question: {user_question}\n\nSQL used: {sql}\n\nResults: {results_str}\n\nProvide formatted answer:"
             }
         ],
         max_tokens=400,
